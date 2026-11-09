@@ -13,6 +13,46 @@ let tasks = [
     { id: 2, title: "Learn Docker", completed: true }
 ];
 
+//prometheus
+const client = require("prom-client");
+const register = new client.Registry();
+client.collectDefaultMetrics({ register });
+const requestCounter = new client.Counter({
+ name: "crud_http_requests_total",
+ help: "Total HTTP requests received by the CRUD API",
+ labelNames: ["method", "route", "status_code"],
+ registers: [register]
+});
+const requestDuration = new client.Histogram({
+ name: "crud_http_request_duration_seconds",
+ help: "HTTP request duration in seconds",
+ labelNames: ["method", "route"],
+ buckets: [0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5],
+ registers: [register]
+});
+// Register this middleware before the CRUD routes.
+app.use((req, res, next) => {
+ const start = process.hrtime.bigint();
+ res.on("finish", () => {
+ const route = req.route?.path || req.path;
+ requestCounter.labels(
+ req.method, route, String(res.statusCode)
+ ).inc();
+ const seconds =
+ Number(process.hrtime.bigint() - start) / 1e9;
+ requestDuration.labels(req.method, route).observe(seconds);
+ });
+ next();
+});
+// Prometheus scrape endpoint
+app.get("/metrics", async (req, res) => {
+ res.set("Content-Type", register.contentType);
+ res.end(await register.metrics());
+});
+//
+
+
+
 // 1. CREATE - POST
 app.post("/tasks", (req, res) => {
     const newTask = {
@@ -137,6 +177,11 @@ app.delete("/tasks/:id", (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
-    console.log(`Server running at http://localhost:${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+ console.log(JSON.stringify({
+ level: "info",
+ message: "server_started",
+ port: PORT,
+ timestamp: new Date().toISOString()
+ }));
 });

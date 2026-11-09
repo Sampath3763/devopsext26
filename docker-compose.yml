@@ -1,0 +1,77 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: dockercont/Dockerfile
+    container_name: crud-app
+    ports:
+      - "5000:5000"
+    networks: [observability]
+    restart: unless-stopped
+  prometheus:
+    image: ghcr.io/prometheus/prometheus:v3.16.0
+    container_name: prometheus
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    ports: ["9090:9090"]
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks: [observability]
+    restart: unless-stopped
+  loki:
+    image: grafana/loki:3.5.0
+    container_name: loki
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    ports: ["3100:3100"]
+    volumes:
+      - loki_data:/loki
+    networks: [observability]
+    restart: unless-stopped
+  alloy:
+    image: grafana/alloy:v1.10.1
+    container_name: alloy
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./monitoring/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports: ["12345:12345"]
+    networks: [observability]
+    restart: unless-stopped
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    container_name: cadvisor
+    privileged: true
+    devices:
+      - /dev/kmsg
+    ports: ["8080:8080"]
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    networks: [observability]
+    restart: unless-stopped
+  grafana:
+    image: grafana/grafana:12.1.1
+    container_name: grafana
+    ports: ["3001:3000"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: change_this_lab_password
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks: [observability]
+    depends_on: [prometheus, loki]
+    restart: unless-stopped
+networks:
+  observability:
+    driver: bridge
+volumes:
+  prometheus_data:
+  loki_data:
+  grafana_data:
